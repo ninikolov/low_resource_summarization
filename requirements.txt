@@ -1,0 +1,8 @@
+numpy
+scipy
+nltk
+tqdm
+torch
+gensim
+sklearn
+sumy
