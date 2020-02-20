@@ -1,6 +1,6 @@
 Code and Data for the paper 'Abstractive Document Summarization Without Parallel Data'. 
 
-![Summarization approach](./summarization_approach.png =250x)
+<img src="./summarization_approach.png" width="500" >
 
 # Datasets 
 
@@ -12,7 +12,7 @@ In the paper, we use two datasets:
 
 The pipeline for training the sentence paraphrasing model consists of the following components: 
 
-![Pipeline](pipeline.png =400x)
+<img src="./pipeline.png" width="800" >
 
 ## Extracting pseudo-parallel data 
 
