@@ -1,12 +1,18 @@
 Code and Data for the paper 'Abstractive Document Summarization Without Parallel Data'. 
 
+![Summarization approach](./summarization_approach.png =250x)
+
 # Datasets 
 
 In the paper, we use two datasets: 
- * The CNN/DailyMail parallel dataset  
- * Press releases 
+ * The CNN/DailyMail parallel summarization dataset. Our processed version is available [here](https://drive.google.com/file/d/10qeztf26eVxmHzUX2JwvC3E0F0BsWcg2/view?usp=sharing). 
+ * Our test dataset for the scientific summarization task
 
 # Running the system
+
+The pipeline for training the sentence paraphrasing model consists of the following components: 
+
+![Pipeline](pipeline.png =400x)
 
 ## Extracting pseudo-parallel data 
 
