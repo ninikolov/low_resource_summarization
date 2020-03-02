@@ -24,7 +24,6 @@ from fairseq.data import data_utils
 import logging
 from low_resource_summarization.summarization_systems.rwmdrank import RWMDRankSummarizer
 from low_resource_summarization.summarization_systems.lexrank import LexRankSummarizer
-# from sumy.summarizers.lex_rank import LexRankSummarizer
 
 
 Batch = namedtuple('Batch', 'ids src_tokens src_lengths')
@@ -161,10 +160,9 @@ def main(args):
 
     print(args)
 
-    print("\n * Summarization args: * \nAlpha: {} \tSentences per summary: {} Max tokens per summary: {} " \
-          "\tRescore nbest: {}\n Paraphrasing + Extract: {}".format(
-        args.alpha, "all" if args.num_output_sentences == -1 else args.num_output_sentences,
-        args.max_summary_tokens, args.rescore_nbest, args.paraphrase_extract))
+    print("\n * Summarization args: * \n\tSentences per summary: {} Max tokens per summary: {} ".format(
+        "all" if args.num_output_sentences == -1 else args.num_output_sentences,
+        args.max_summary_tokens))
     print("Article buffer size: {} \tSentence batch size: {} \n".format(
         args.buffer_size, args.max_sentences))
 
@@ -225,8 +223,6 @@ def main(args):
         *[model.max_positions() for model in [models[0]]]
     )
 
-    # if args.buffer_size > 1:
-    #     print('| Sentence buffer size:', args.buffer_size)
     print('| Type the input sentence and press return:')
     start_id = 0
 
@@ -235,9 +231,9 @@ def main(args):
             args.output_file = "{}.extract-only={}.out_sent={}".format(
                 args.output_file, args.extractive_approach, args.num_output_sentences)
         else:
-            args.output_file = "{}.ext={}.out_sent={}.max_tok={}.alpha={}.rescore={}.par_ext={}".format(
+            args.output_file = "{}.ext={}.out_sent={}.max_tok={}".format(
                 args.output_file, args.extractive_approach, args.num_output_sentences,
-                args.max_summary_tokens, args.alpha, args.rescore_nbest, args.paraphrase_extract)
+                args.max_summary_tokens)
         out_file = open(args.output_file, "w")
         print('| Writing output to: {}'.format(args.output_file))
 
@@ -251,16 +247,12 @@ def main(args):
         return articles_history
 
     def generate_paraphrases(paraphrase_models, article_sentences, history_sents,
-                             alpha, return_n_best=1):
+                             return_n_best=1):
         # Generate the batch of sentences to paraphrase
         sentence_batch_flat = [sent for article in article_sentences for sent in article]
-        # sentence_batch_iter = make_batches(
-        #     sentence_batch_flat, args, task, max_positions)
         # Generate the history batch
         history = make_history(history_sents, article_sentences)
         history_batch_flat = [sent for article in history for sent in article]
-        # history_batch_iter = make_batches(
-        #     history_batch_flat, args, task, max_positions)
 
         results = []
         input_idx = 0
@@ -285,7 +277,7 @@ def main(args):
                 'src_lengths': src_lengths,
                 'history_tokens': history_src_tokens,
                 'history_src_lengths': history_src_lengths
-            }, 'alpha': alpha}
+            }, 'alpha': 0.}
 
             # Generate the next abstractive sentences
             paraphrase_predictions = task.inference_step(
@@ -317,7 +309,6 @@ def main(args):
                     remove_bpe=args.remove_bpe,
                 )
                 # print(hypo)
-                # score = hypo["lm_score"].item()
                 score = hypo["score"]
                 sentence_paraphrases.append(hypo_str)
                 # Remove BPE
@@ -340,170 +331,6 @@ def main(args):
 
         return out_paraphrases, out_paraphrases_clean, out_scores
 
-    def score_paraphrases(
-            language_model, paraphrases_batch, summary_history,
-            articles_sentences, rescore_n_best=1, fairseq_lm=False,
-            remove_redundant=True):
-        articles_history = make_history(summary_history, articles_sentences, rescore_n_best)
-        paraphrases_batch_flat = [sent for article in paraphrases_batch for sent in article]
-        history_batch_flat = [sent for article in articles_history for sent in article]
-
-        if fairseq_lm:
-            paraphrases_batch_flat = [
-                (history + " " + par)[3:]
-                if history[-3:] == "<@@ s@@ >" else (history + " <@@ s@@ > " + par)[3:]
-                for history, par in zip(history_batch_flat, paraphrases_batch_flat)
-            ]
-
-        paraphrase_batch_iter = make_batches(
-            paraphrases_batch_flat, args, task, max_positions)
-        history_batch_iter = make_batches(
-            history_batch_flat, args, task, max_positions)
-
-        results = []
-        n_batches = 0
-
-        for paraphrase_batch, history_batch in zip(paraphrase_batch_iter, history_batch_iter):
-            n_batches += 1
-            paraphrases_src_tokens = paraphrase_batch.src_tokens
-            paraphrases_src_lengths = paraphrase_batch.src_lengths
-            history_src_tokens = history_batch.src_tokens
-            history_src_lengths = history_batch.src_lengths
-
-            if use_cuda:
-                paraphrases_src_tokens = paraphrases_src_tokens.cuda()
-                paraphrases_src_lengths = paraphrases_src_lengths.cuda()
-
-            prev_output_tokens = data_utils.collate_tokens(
-                paraphrases_src_tokens,
-                src_dict.pad(), src_dict.eos(), True, True
-            )
-            _, sort_order = paraphrases_src_lengths.sort(descending=True)
-            prev_output_tokens = prev_output_tokens.index_select(0, sort_order)
-
-            if use_cuda:
-                prev_output_tokens = prev_output_tokens.cuda()
-
-            assert len(history_src_tokens) == len(paraphrases_src_tokens)
-
-            if use_cuda:
-                history_src_tokens = history_src_tokens.cuda()
-                history_src_lengths = history_src_lengths.cuda()
-
-            if fairseq_lm:
-                history_sample = {
-                    'net_input': {
-                        'src_tokens': prev_output_tokens,
-                        'src_lengths': paraphrases_src_lengths,
-                    },
-                    "target": paraphrases_src_tokens
-                }
-                lm_predictions = scorer.generate(language_model, history_sample)
-            else:
-                history_sample = {
-                    'net_input': {
-                        'src_tokens': history_src_tokens,
-                        'src_lengths': history_src_lengths,
-                        'prev_output_tokens': prev_output_tokens
-                    },
-                    "target": paraphrases_src_tokens
-                }
-                lm_predictions = task.inference_step(
-                    scorer, language_model, history_sample)
-
-            for i, (id, hypos) in enumerate(zip(paraphrase_batch.ids.tolist(), lm_predictions)):
-                src_tokens_i = utils.strip_pad(history_src_tokens[i], tgt_dict.pad())
-                results.append((start_id + id, src_tokens_i, hypos))
-
-        lm_scores = np.zeros(len(results))
-
-        # sort output to match input order
-        for i, (id, src_tokens, hypos) in enumerate(sorted(results, key=lambda x: x[0])):
-            if src_dict is not None:
-                src_str = src_dict.string(src_tokens, args.remove_bpe)
-            # Process top predictions
-            for hypo in hypos[:min(len(hypos), 1)]:
-                # print(hypo)
-                # hypo_tokens, hypo_str, alignment = utils.post_process_prediction(
-                #     hypo_tokens=hypo['tokens'].int().cpu(),
-                #     src_str=src_str,
-                #     alignment=hypo['alignment'].int().cpu() if hypo['alignment'] is not None else None,
-                #     align_dict=align_dict,
-                #     tgt_dict=tgt_dict,
-                #     remove_bpe=args.remove_bpe,
-                # )
-                # print(alignment)
-
-                # prev_tokens, prev_tokens_str, al = utils.post_process_prediction(
-                #     hypo_tokens=hypo['prev_output_tokens'].int().cpu(),
-                #     src_str=src_str,
-                #     alignment=hypo['alignment'].int().cpu() if hypo['alignment'] is not None else None,
-                #     align_dict=align_dict,
-                #     tgt_dict=tgt_dict,
-                #     remove_bpe=args.remove_bpe,
-                # )
-
-                score = hypo["score"].data.cpu().numpy()
-                # score = hypo["score"]
-
-                # print("Len hypos {}".format(len(hypos)))
-                # print("Src: {}".format(src_str))
-                # print("Tgt: {}".format(hypo_str))
-                # print("Prev output tokens: {}".format(prev_tokens_str))
-                # print("Score: {}".format(score))
-                # print()
-
-                lm_scores[i] = score
-
-        # Get the scores of the language model
-        # print("LM Scores {} {}".format(len(lm_scores), lm_scores))
-
-        # for k, (score, par, hist) in enumerate(
-        #         zip(lm_scores, paraphrases_batch_flat, history_batch_flat)):
-        #     print("{}) {} {} --- {} --- {}".format(
-        #         k, len(par.split()), np.round(score, 3), hist, par))
-
-        def exclude_redundant_paraphrases(paraphrase_scores, paraphrases,
-                                          paraphrase_history, threshold=0.8):
-            checked_scores = []
-            for paraphrase_score, paraphrase, history in zip(
-                    paraphrase_scores, paraphrases, paraphrase_history):
-                if jaccard_similarity(history.split(), paraphrase.split()) < threshold:
-                    checked_scores.append(paraphrase_score)
-                else:
-                    checked_scores.append(-np.inf)
-            return checked_scores
-
-        final_scores = []
-        curr_idx = 0
-        for batch_id, paraphrases_article in enumerate(paraphrases_batch):
-            paraphrase_scores = lm_scores[curr_idx:curr_idx + len(paraphrases_article)]
-            assert len(paraphrase_scores) == len(paraphrases_article)
-            if remove_redundant:
-                paraphrase_scores = exclude_redundant_paraphrases(
-                    paraphrase_scores, paraphrases_article, articles_history[batch_id])
-            final_scores.append(paraphrase_scores)
-            curr_idx += len(paraphrases_article)
-
-        assert len(final_scores) == len(paraphrases_batch)
-
-        return final_scores
-
-    def pick_best_beam(scores):
-        best_beam = []
-        best_beam_scores = []
-        for j in np.arange(0, len(scores), args.rescore_nbest):
-            beam_hypo_scores = scores[j:j + args.rescore_nbest]
-            best = np.argmax(beam_hypo_scores)
-            best_beam.append(j + best)
-            best_beam_scores.append(beam_hypo_scores[best])
-        assert len(best_beam) == int(len(scores) / args.rescore_nbest)
-        return best_beam, best_beam_scores
-
-    def order_scores(scores):
-        best_beam_idx, best_beam_scores = pick_best_beam(scores)
-        return [best_beam_idx[j] for j in np.argsort(best_beam_scores)[::-1]]
-
     def extractive_summarization(article, length):
         assert type(article) == list
         if args.extractive_approach == "lead":
@@ -516,7 +343,7 @@ def main(args):
         summary = []
         order = []
         for s, info in zip(*extractor(
-                article, length, order_by_article=(not args.paraphrase_extract) or args.alpha == 0.)):
+                article, length, order_by_article=True)):
             order.append(info.order)
             summary.append(article_copy[info.order])
         return summary, order
@@ -534,13 +361,11 @@ def main(args):
 
         if args.num_output_sentences > 0:
             max_summary_length = args.num_output_sentences
-            if args.paraphrase_extract:
-                articles = [inp.strip().split(" <@@ s@@ > ") for inp in input_lines]
-            else:
-                articles = [
-                    extractive_summarization(inp.strip().split(" <@@ s@@ > "), max_summary_length)[0]
-                    for inp in input_lines
-                ]
+            # Run extractive summarization
+            articles = [
+                extractive_summarization(inp.strip().split(" <@@ s@@ > "), max_summary_length)[0]
+                for inp in input_lines
+            ]
         else:
             articles = [inp.strip().split(" <@@ s@@ > ") for inp in input_lines]
             max_summary_length = len(articles[0])
@@ -553,14 +378,11 @@ def main(args):
         final_clean_summaries = [[] for j in range(len(articles))]
         final_clean_summaries_lengths = [len(s) for s in final_clean_summaries]
 
-        if total_sentences_in_buffer * args.rescore_nbest < args.max_sentences:
-            args.max_sentences = total_sentences_in_buffer * args.rescore_nbest
+        if total_sentences_in_buffer < args.max_sentences:
+            args.max_sentences = total_sentences_in_buffer
             print("WARNING: you can increase your buffer size")
 
-        # Disable LM for first sentence
-        alpha = 0.
-
-        if args.extractive_only:
+        if args.extractive_only: # Only run extractive summarization
             for i, article in enumerate(articles):
                 for sent in article:
                     final_clean_summaries[i].append(process_bpe_symbol(sent, "@@ "))
@@ -570,67 +392,24 @@ def main(args):
                 if all(finished_generation):
                     break
 
-                if sentence_num > 0:
-                    alpha = args.alpha
-
-                if sentence_num == 0 or alpha > 0.:  # Only regenerate paraphrases first time or if alpha > 0.
+                if sentence_num == 0:  # Only regenerate paraphrases first time
+                    # Sentence paraphrasing
                     paraphrases, paraphrases_clean, paraphrase_scores = \
                         generate_paraphrases(
-                            paraphrase_models, articles, summary_history,
-                            alpha, args.rescore_nbest
+                            paraphrase_models, articles, summary_history
                         )
 
-                if args.paraphrase_extract:
-                    if args.alpha == 0.:
-                        extractive_summaries = [
-                            extractive_summarization(pars, max_summary_length)[0]
-                            for pars in paraphrases_clean
-                        ]
-                        # print(extractive_summaries)
-                        for article_id, s in enumerate(extractive_summaries):
-                            final_clean_summaries[article_id] += s
-                        break
-                    else:
-                        for article_id, (article_paraphrases, article_paraphrases_clean) \
-                                in enumerate(zip(paraphrases, paraphrases_clean)):
-                            extracted_summary, sentence_location = extractive_summarization(
-                                article_paraphrases_clean, len(article_paraphrases_clean))
-                            assert len(sentence_location) == len(extracted_summary) \
-                                   == len(article_paraphrases) == len(article_paraphrases_clean)
-                            for location, paraphrase in zip(sentence_location, extracted_summary):
-                                location_rerank = int(location / args.rescore_nbest)
-                                if location_rerank in sentence_selection_indices[article_id]:  # Sentence already in summary
-                                    continue
-                                skip_sent = False
-                                for existing_summary_sent in final_clean_summaries[article_id]:
-                                    if jaccard_similarity(paraphrase, existing_summary_sent) > 0.8 \
-                                            or len(paraphrase) < 3:
-                                        skip_sent = True
-                                        break
-                                if not skip_sent:
-                                    paraphrase_len = len(paraphrase.split())
-                                    if args.max_summary_tokens > 0:
-                                        if final_clean_summaries_lengths[article_id] + paraphrase_len > args.max_summary_tokens:
-                                            finished_generation[article_id] = True
-                                            break
+                for article_id, (article_paraphrases, article_paraphrases_clean) \
+                        in enumerate(zip(paraphrases, paraphrases_clean)):
+                    if sentence_num > len(article_paraphrases) - 1:  # Article shorter than expected summary length
+                        continue
+                    next_sent = article_paraphrases[sentence_num]
+                    next_sent_clean = article_paraphrases_clean[sentence_num]
+                    final_clean_summaries[article_id].append(next_sent_clean)
+                    final_clean_summaries_lengths[article_id] += len(next_sent_clean.split())
 
-                                    final_clean_summaries[article_id].append(paraphrase)
-                                    final_clean_summaries_lengths[article_id] += paraphrase_len
-                                    sentence_selection_indices[article_id].append(location_rerank)
-                                    summary_history[article_id].append(article_paraphrases[location])
-                                    break
-                else:
-                    for article_id, (article_paraphrases, article_paraphrases_clean) \
-                            in enumerate(zip(paraphrases, paraphrases_clean)):
-                        if sentence_num > len(article_paraphrases) - 1:  # Article shorter than expected summary length
-                            continue
-                        next_sent = article_paraphrases[sentence_num]
-                        next_sent_clean = article_paraphrases_clean[sentence_num]
-                        final_clean_summaries[article_id].append(next_sent_clean)
-                        final_clean_summaries_lengths[article_id] += len(next_sent_clean.split())
-
-                        sentence_selection_indices[article_id].append(sentence_num)
-                        summary_history[article_id].append(next_sent)
+                    sentence_selection_indices[article_id].append(sentence_num)
+                    summary_history[article_id].append(next_sent)
 
         for sel_idx in sentence_selection_indices:
             for j in sel_idx:
@@ -689,18 +468,12 @@ def main(args):
 def cli_main():
     parser = options.get_generation_parser(interactive=True)
     parser.add_argument('--output_file', help='file to write the output to')
-    parser.add_argument('--alpha', help='file to write the output to', type=float, default=0.)
     parser.add_argument('--num_output_sentences', help='file to write the output to',
                         default=-1, type=int)
     parser.add_argument('--max_summary_tokens', help='file to write the output to',
                         default=-1, type=int)
-    parser.add_argument('--rescore_nbest',
-        help='Rescore nbest paraphrases with the help of the LM',
-        default=1, type=int)
     parser.add_argument('--extractive_approach', help="Paraphrase then extract",
                         default="lead")
-    parser.add_argument('--paraphrase_extract', help="Paraphrase then extract",
-                        default=False, type=bool)
     parser.add_argument('--extractive_only', help="Only extractive summarization",
                         default=False, type=bool)
     parser.add_argument('--print_summary', help="print summaries to std out",

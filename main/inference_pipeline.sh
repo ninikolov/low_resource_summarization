@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Paraphrase the sentences in a summary using an abstractor model + a language model
+# Run the summarization pipeline: extraction followed by sentence paraphrasing.
 
 # The input file to summarize, containing one article per line
 input_file=$1
@@ -50,7 +50,7 @@ paraphrase_data=/home/nikola/data/raw/cnn_dailymail/unsupervised-summarization/p
 paraphrase_model=/home/nikola/data/raw/cnn_dailymail/unsupervised-summarization/paraphrase-model-combined+backtranslation+sampling/lstm_tiny/checkpoint_best.pt
 
 # Science source BPE path
-bpe_code_path=~/PhD/code/subword-nmt/
+bpe_code_path=$BASE_PROJECT_DIR/subword-nmt/
 bpe_codes=/home/nikola/data/raw/science-journalism/lha-paper-data/paraphrase-model/train.paper.clean.bpe
 
 # The root dir of the paraphrase model (trained using fairseq)
@@ -65,16 +65,14 @@ sentence_batch_size=150
 
 echo "$FAIRSEQ_PATH"
 
-#CUDA_VISIBLE_DEVICES=$CUDA_DEV python $FAIRSEQ_PATH/sentence-abstractor-lm-batch.py $paraphrase_data \
-
-# Apply BPE, translate input file line by line
+# Apply BPE, run summarization pipeline line by line
 cat $input_file | python $bpe_code_path/apply_bpe.py --codes $bpe_codes | \
     CUDA_VISIBLE_DEVICES=$gpu python $FAIRSEQ_PATH/paraphrase-rescore-batch.py $paraphrase_data \
     --path $paraphrase_model \
     --output_file $base_input_file.par.buff=$buff_size.nbest=$n_best_reranking \
-    -s paper -t press --alpha 0. \
+    -s paper -t press \
     --beam 5 --nbest 5 --no-beamable-mm --no-repeat-ngram-size 3 \
     --max-sentences $sentence_batch_size --buffer-size $buff_size \
-    --num_output_sentences $summary_length --rescore_nbest 1 \
+    --num_output_sentences $summary_length \
     $extractive_approach
 
