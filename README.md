@@ -1,10 +1,10 @@
 *Resources for the paper '[Abstractive Document Summarization Without Parallel Data](https://arxiv.org/abs/1907.12951)'.* 
 
-<img src="./summarization_approach.png" width="450" >
+<img src="./summarization_approach.png" width="350" >
 
 # Datasets 
 
-We provide two datasets: 
+We provide the following datasets: 
  * The CNN/DailyMail parallel summarization dataset we use in the paper. 
  Our processed version is available [here](https://drive.google.com/file/d/10qeztf26eVxmHzUX2JwvC3E0F0BsWcg2/view?usp=sharing). 
  * Our dataset of the plain text of 350k press releases, scraped from [EurekAlert](https://www.eurekalert.org/), 
@@ -23,7 +23,8 @@ as well as with snapshots of the [subword-nmt](https://github.com/rsennrich/subw
 and ROUGE repositories. 
 
 To install all project dependencies, you can run `pip install -r requirements.txt`. You'll also 
-need to install our Fairseq code base. 
+need to install our Fairseq version, which might also require downgrading PyTorch, 
+depending future compatibility. 
 
 # Running the system
 
